@@ -1,0 +1,8 @@
+#screen {
+  width: 40vw;
+  height: 36vw;
+  min-width: 160px;
+  min-height: 144px;
+  margin-top: 10px;
+  border-style: dotted;
+}
