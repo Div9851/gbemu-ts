@@ -234,6 +234,22 @@ const or8 = (x: u8, y: u8, reg: Registers): u8 => {
   return result;
 };
 
+const inc8 = (x: u8, reg: Registers): u8 => {
+  const result = (x + 1) & 0xff;
+  reg.FlagZ = result === 0;
+  reg.FlagN = false;
+  reg.FlagH = (x & 0xf) + 1 > 0xf;
+  return result;
+};
+
+const dec8 = (x: u8, reg: Registers): u8 => {
+  const result = (x - 1) & 0xff;
+  reg.FlagZ = result === 0;
+  reg.FlagN = true;
+  reg.FlagH = (x & 0xf) < 1;
+  return result;
+};
+
 const createOpcodeTable = (
   reg: Registers,
   memory: Memory
@@ -616,6 +632,46 @@ const createOpcodeTable = (
           const a = reg.A;
           const b = reg[label8[x]];
           sub8(a, b, reg);
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x04 + (x << 3);
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `INC (HL)`, 12, 1, () => {
+        const a = memory.readByte(reg.HL);
+        memory.writeByte(reg.HL, inc8(a, reg));
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `INC A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          reg.A = inc8(a, reg);
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x05 + (x << 3);
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `DEC (HL)`, 12, 1, () => {
+        const a = memory.readByte(reg.HL);
+        memory.writeByte(reg.HL, dec8(a, reg));
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `DEC A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          reg.A = dec8(a, reg);
         }
       );
     }
