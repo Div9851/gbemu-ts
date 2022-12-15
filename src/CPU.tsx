@@ -147,20 +147,33 @@ class Registers {
   }
 }
 
-class Opcode {
+class Instruction {
+  opcode: u8;
   label: string;
   clocks: number;
+  length: number;
   handler: () => void;
 
-  constructor(label: string, clocks: number, handler: () => void) {
+  constructor(
+    opcode: u8,
+    label: string,
+    clocks: number,
+    length: number,
+    handler: () => void
+  ) {
+    this.opcode = opcode;
     this.label = label;
     this.clocks = clocks;
+    this.length = length;
     this.handler = handler;
   }
 }
 
-const createOpcodeTable = (reg: Registers, memory: Memory): Array<Opcode> => {
-  const opcodeTable: Array<Opcode> = [];
+const createOpcodeTable = (
+  reg: Registers,
+  memory: Memory
+): Array<Instruction> => {
+  const opcodeTable: Array<Instruction> = [];
 
   const label8 = ["B", "C", "D", "E", "H", "L", "(HL)", "A"];
   const label16 = ["BC", "DE", "HL", "SP"];
@@ -176,19 +189,33 @@ const createOpcodeTable = (reg: Registers, memory: Memory): Array<Opcode> => {
       }
       if (x === 6) {
         // LD (HL), r
-        opcodeTable[opcode] = new Opcode(`LD (HL), ${label8[y]}`, 8, () => {
-          memory.writeByte(reg.HL, reg[label8[y]]);
-        });
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `LD (HL), ${label8[y]}`,
+          8,
+          1,
+          () => {
+            memory.writeByte(reg.HL, reg[label8[y]]);
+          }
+        );
       } else if (y === 6) {
         // LD r, (HL)
-        opcodeTable[opcode] = new Opcode(`LD ${label8[x]}, (HL)`, 8, () => {
-          reg[label8[x]] = memory.readByte(reg.HL);
-        });
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `LD ${label8[x]}, (HL)`,
+          8,
+          1,
+          () => {
+            reg[label8[x]] = memory.readByte(reg.HL);
+          }
+        );
       } else {
         // LD r, r'
-        opcodeTable[opcode] = new Opcode(
+        opcodeTable[opcode] = new Instruction(
+          opcode,
           `LD ${label8[x]}, ${label8[y]}`,
           4,
+          1,
           () => {
             reg[label8[x]] = reg[label8[y]];
           }
@@ -199,69 +226,75 @@ const createOpcodeTable = (reg: Registers, memory: Memory): Array<Opcode> => {
   for (let x = 0; x < 8; x++) {
     const opcode = 0x06 + (x << 3);
     if (x === 6) {
-      opcodeTable[opcode] = new Opcode(`LD (HL), n`, 12, () => {
+      opcodeTable[opcode] = new Instruction(opcode, `LD (HL), n`, 12, 2, () => {
         const n = memory.readByte(reg.incPC());
         memory.writeByte(reg.HL, n);
       });
     } else {
-      opcodeTable[opcode] = new Opcode(`LD ${label8[x]}, n`, 8, () => {
-        const n = memory.readByte(reg.incPC());
-        reg[label8[x]] = n;
-      });
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `LD ${label8[x]}, n`,
+        8,
+        2,
+        () => {
+          const n = memory.readByte(reg.incPC());
+          reg[label8[x]] = n;
+        }
+      );
     }
   }
-  opcodeTable[0x0a] = new Opcode(`LD A, (BC)`, 8, () => {
+  opcodeTable[0x0a] = new Instruction(0x0a, `LD A, (BC)`, 8, 1, () => {
     reg.A = memory.readByte(reg.BC);
   });
-  opcodeTable[0x1a] = new Opcode(`LD A, (DE)`, 8, () => {
+  opcodeTable[0x1a] = new Instruction(0x1a, `LD A, (DE)`, 8, 1, () => {
     reg.A = memory.readByte(reg.DE);
   });
-  opcodeTable[0x02] = new Opcode(`LD (BC), A`, 8, () => {
+  opcodeTable[0x02] = new Instruction(0x02, `LD (BC), A`, 8, 1, () => {
     memory.writeByte(reg.BC, reg.A);
   });
-  opcodeTable[0x12] = new Opcode(`LD (DE), A`, 8, () => {
+  opcodeTable[0x12] = new Instruction(0x12, `LD (DE), A`, 8, 1, () => {
     memory.writeByte(reg.DE, reg.A);
   });
-  opcodeTable[0xfa] = new Opcode(`LD A, (nn)`, 16, () => {
+  opcodeTable[0xfa] = new Instruction(0xfa, `LD A, (nn)`, 16, 3, () => {
     const lower = memory.readByte(reg.incPC());
     const upper = memory.readByte(reg.incPC());
     const addr = (upper << 3) + lower;
     reg.A = memory.readByte(addr);
   });
-  opcodeTable[0xea] = new Opcode(`LD (nn), A`, 16, () => {
+  opcodeTable[0xea] = new Instruction(0xea, `LD (nn), A`, 16, 3, () => {
     const lower = memory.readByte(reg.incPC());
     const upper = memory.readByte(reg.incPC());
     const addr = (upper << 3) + lower;
     memory.writeByte(addr, reg.A);
   });
-  opcodeTable[0xf2] = new Opcode(`LDH A, (C)`, 8, () => {
+  opcodeTable[0xf2] = new Instruction(0xf2, `LDH A, (C)`, 8, 1, () => {
     const addr = 0xff00 + reg.C;
     reg.A = memory.readByte(addr);
   });
-  opcodeTable[0xe2] = new Opcode(`LDH (C), A`, 8, () => {
+  opcodeTable[0xe2] = new Instruction(0xe2, `LDH (C), A`, 8, 1, () => {
     const addr = 0xff00 + reg.C;
     memory.writeByte(addr, reg.A);
   });
-  opcodeTable[0xf0] = new Opcode(`LDH A, (n)`, 12, () => {
+  opcodeTable[0xf0] = new Instruction(0xf0, `LDH A, (n)`, 12, 1, () => {
     const n = memory.readByte(reg.incPC());
     const addr = 0xff00 + n;
     reg.A = memory.readByte(addr);
   });
-  opcodeTable[0xe0] = new Opcode(`LDH (n), A`, 12, () => {
+  opcodeTable[0xe0] = new Instruction(0xe0, `LDH (n), A`, 12, 2, () => {
     const n = memory.readByte(reg.incPC());
     const addr = 0xff00 + n;
     memory.writeByte(addr, reg.A);
   });
-  opcodeTable[0x3a] = new Opcode(`LD A, (HL-)`, 8, () => {
+  opcodeTable[0x3a] = new Instruction(0x3a, `LD A, (HL-)`, 8, 1, () => {
     reg.A = memory.readByte(reg.decHL());
   });
-  opcodeTable[0x32] = new Opcode(`LD (HL-), A`, 8, () => {
+  opcodeTable[0x32] = new Instruction(0x32, `LD (HL-), A`, 8, 1, () => {
     memory.writeByte(reg.decHL(), reg.A);
   });
-  opcodeTable[0x2a] = new Opcode(`LD A, (HL+)`, 8, () => {
+  opcodeTable[0x2a] = new Instruction(0x2a, `LD A, (HL+)`, 8, 1, () => {
     reg.A = memory.readByte(reg.incHL());
   });
-  opcodeTable[0x22] = new Opcode(`LD (HL+), A`, 8, () => {
+  opcodeTable[0x22] = new Instruction(0x22, `LD (HL+), A`, 8, 1, () => {
     memory.writeByte(reg.incHL(), reg.A);
   });
 
@@ -269,14 +302,20 @@ const createOpcodeTable = (reg: Registers, memory: Memory): Array<Opcode> => {
 
   for (let x = 0; x < 4; x++) {
     const opcode = 0x01 + (x << 4);
-    opcodeTable[opcode] = new Opcode(`LD ${label16[x]}, nn`, 12, () => {
-      const lower = memory.readByte(reg.incPC());
-      const upper = memory.readByte(reg.incPC());
-      const n = (upper << 3) + lower;
-      reg[label16[x]] = n;
-    });
+    opcodeTable[opcode] = new Instruction(
+      opcode,
+      `LD ${label16[x]}, nn`,
+      12,
+      3,
+      () => {
+        const lower = memory.readByte(reg.incPC());
+        const upper = memory.readByte(reg.incPC());
+        const n = (upper << 3) + lower;
+        reg[label16[x]] = n;
+      }
+    );
   }
-  opcodeTable[0x08] = new Opcode(`LD (nn), SP`, 20, () => {
+  opcodeTable[0x08] = new Instruction(0x08, `LD (nn), SP`, 20, 3, () => {
     const lower = memory.readByte(reg.incPC());
     const upper = memory.readByte(reg.incPC());
     const addr = (upper << 3) + lower;
@@ -285,24 +324,114 @@ const createOpcodeTable = (reg: Registers, memory: Memory): Array<Opcode> => {
     memory.writeByte(addr, lowerSP);
     memory.writeByte(addr, upperSP);
   });
-  opcodeTable[0xf9] = new Opcode(`LD SP, HL`, 8, () => {
+  opcodeTable[0xf9] = new Instruction(0xf9, `LD SP, HL`, 8, 1, () => {
     reg.SP = reg.HL;
   });
   for (let x = 0; x < 4; x++) {
     const opcode = 0xc5 + (x << 4);
-    opcodeTable[opcode] = new Opcode(`PUSH ${label16[x]}`, 16, () => {
-      reg.decSP();
-      memory.writeByte(reg.decSP(), reg.B);
-      memory.writeByte(reg.SP, reg.C);
-    });
+    opcodeTable[opcode] = new Instruction(
+      opcode,
+      `PUSH ${label16[x]}`,
+      16,
+      1,
+      () => {
+        reg.decSP();
+        memory.writeByte(reg.decSP(), reg.B);
+        memory.writeByte(reg.SP, reg.C);
+      }
+    );
   }
   for (let x = 0; x < 4; x++) {
     const opcode = 0xc1 + (x << 4);
-    opcodeTable[opcode] = new Opcode(`POP ${label16[x]}`, 12, () => {
-      reg.C = memory.readByte(reg.incSP());
-      reg.B = memory.readByte(reg.incSP());
-    });
+    opcodeTable[opcode] = new Instruction(
+      opcode,
+      `POP ${label16[x]}`,
+      12,
+      1,
+      () => {
+        reg.C = memory.readByte(reg.incSP());
+        reg.B = memory.readByte(reg.incSP());
+      }
+    );
   }
+
+  // TODO: LD HL, SP+i8 is missing!
+
+  // 8-bit arithmetic/logic instructions
+
+  const add8 = (x: u8, y: u8, reg: Registers): u8 => {
+    const result = (x + y) & 0xff;
+    reg.FlagZ = result === 0;
+    reg.FlagN = false;
+    reg.FlagH = (x & 0xf) + (y & 0xf) > 0xf;
+    reg.FlagC = x + y > 0xff;
+    return result;
+  };
+
+  const adc8 = (x: u8, y: u8, reg: Registers): u8 => {
+    const c = reg.FlagC ? 1 : 0;
+    const result = (x + y + c) & 0xff;
+    reg.FlagZ = result === 0;
+    reg.FlagN = false;
+    reg.FlagH = (x & 0xf) + (y & 0xf) + c > 0xf;
+    reg.FlagC = x + y + c > 0xff;
+    return result;
+  };
+
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x80 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `ADD A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        reg.A = add8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `ADD A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          reg.A = add8(a, b, reg);
+        }
+      );
+    }
+  }
+  opcodeTable[0xc6] = new Instruction(0xc6, `ADD A, n`, 8, 2, () => {
+    const a = reg.A;
+    const b = memory.readByte(reg.incPC());
+    reg.A = add8(a, b, reg);
+  });
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x88 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `ADC A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        reg.A = adc8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `ADC A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          reg.A = adc8(a, b, reg);
+        }
+      );
+    }
+  }
+  opcodeTable[0xce] = new Instruction(0xce, "ADC A, n", 8, 2, () => {
+    const a = reg.A;
+    const b = memory.readByte(reg.incPC());
+    reg.A = adc8(a, b, reg);
+  });
 
   return opcodeTable;
 };
@@ -311,16 +440,31 @@ class CPU {
   reg: Registers;
   memory: Memory;
   clocksToComplete: number;
-  opcodeTable: Array<Opcode>;
+  funcToExecute: () => void;
+  opcodeTable: Array<Instruction>;
 
   constructor(memory: Memory) {
     this.reg = new Registers();
     this.memory = memory;
     this.clocksToComplete = 0;
+    this.funcToExecute = () => {};
     this.opcodeTable = createOpcodeTable(this.reg, this.memory);
   }
 
-  tick() {}
+  fetch() {
+    const opcode = this.memory.readByte(this.reg.incPC());
+    const inst = this.opcodeTable[opcode];
+    this.clocksToComplete = inst.clocks;
+    this.funcToExecute = inst.handler;
+  }
+
+  tick() {
+    this.clocksToComplete--;
+    if (this.clocksToComplete <= 0) {
+      this.funcToExecute();
+      this.fetch();
+    }
+  }
 }
 
 export default CPU;
