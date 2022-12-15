@@ -427,7 +427,7 @@ const createOpcodeTable = (
       );
     }
   }
-  opcodeTable[0xce] = new Instruction(0xce, "ADC A, n", 8, 2, () => {
+  opcodeTable[0xce] = new Instruction(0xce, `ADC A, n`, 8, 2, () => {
     const a = reg.A;
     const b = memory.readByte(reg.incPC());
     reg.A = adc8(a, b, reg);
