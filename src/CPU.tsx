@@ -368,6 +368,15 @@ const createOpcodeTable = (
     return result;
   };
 
+  const sub8 = (x: u8, y: u8, reg: Registers): u8 => {
+    const result = (x - y) & 0xff;
+    reg.FlagZ = result === 0;
+    reg.FlagN = true;
+    reg.FlagH = (x & 0xf) < (y & 0xf);
+    reg.FlagC = x < y;
+    return result;
+  };
+
   const adc8 = (x: u8, y: u8, reg: Registers): u8 => {
     const c = reg.FlagC ? 1 : 0;
     const result = (x + y + c) & 0xff;
@@ -375,6 +384,16 @@ const createOpcodeTable = (
     reg.FlagN = false;
     reg.FlagH = (x & 0xf) + (y & 0xf) + c > 0xf;
     reg.FlagC = x + y + c > 0xff;
+    return result;
+  };
+
+  const sbc8 = (x: u8, y: u8, reg: Registers): u8 => {
+    const c = reg.FlagC ? 0xff : 0;
+    const result = (x - y - c) & 0xff;
+    reg.FlagZ = result === 0;
+    reg.FlagN = true;
+    reg.FlagH = (x & 0xf) < (y & 0xf) + c;
+    reg.FlagC = x < y + c;
     return result;
   };
 
@@ -432,7 +451,60 @@ const createOpcodeTable = (
     const b = memory.readByte(reg.incPC());
     reg.A = adc8(a, b, reg);
   });
-
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x90 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `SUB A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        reg.A = sub8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `SUB A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          reg.A = sub8(a, b, reg);
+        }
+      );
+    }
+  }
+  opcodeTable[0xd6] = new Instruction(0xd6, `SUB A, n`, 8, 2, () => {
+    const a = reg.A;
+    const b = memory.readByte(reg.incPC());
+    reg.A = sub8(a, b, reg);
+  });
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x98 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `SBC A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        reg.A = sbc8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `SBC A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          reg.A = sbc8(a, b, reg);
+        }
+      );
+    }
+  }
+  opcodeTable[0xde] = new Instruction(0xde, `SBC A, n`, 8, 2, () => {
+    const a = reg.A;
+    const b = memory.readByte(reg.incPC());
+    reg.A = sbc8(a, b, reg);
+  });
   return opcodeTable;
 };
 
