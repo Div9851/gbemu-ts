@@ -169,6 +169,71 @@ class Instruction {
   }
 }
 
+const add8 = (x: u8, y: u8, reg: Registers): u8 => {
+  const result = (x + y) & 0xff;
+  reg.FlagZ = result === 0;
+  reg.FlagN = false;
+  reg.FlagH = (x & 0xf) + (y & 0xf) > 0xf;
+  reg.FlagC = x + y > 0xff;
+  return result;
+};
+
+const sub8 = (x: u8, y: u8, reg: Registers): u8 => {
+  const result = (x - y) & 0xff;
+  reg.FlagZ = result === 0;
+  reg.FlagN = true;
+  reg.FlagH = (x & 0xf) < (y & 0xf);
+  reg.FlagC = x < y;
+  return result;
+};
+
+const adc8 = (x: u8, y: u8, reg: Registers): u8 => {
+  const c = reg.FlagC ? 1 : 0;
+  const result = (x + y + c) & 0xff;
+  reg.FlagZ = result === 0;
+  reg.FlagN = false;
+  reg.FlagH = (x & 0xf) + (y & 0xf) + c > 0xf;
+  reg.FlagC = x + y + c > 0xff;
+  return result;
+};
+
+const sbc8 = (x: u8, y: u8, reg: Registers): u8 => {
+  const c = reg.FlagC ? 0xff : 0;
+  const result = (x - y - c) & 0xff;
+  reg.FlagZ = result === 0;
+  reg.FlagN = true;
+  reg.FlagH = (x & 0xf) < (y & 0xf) + c;
+  reg.FlagC = x < y + c;
+  return result;
+};
+
+const and8 = (x: u8, y: u8, reg: Registers): u8 => {
+  const result = x & y;
+  reg.FlagZ = result === 0;
+  reg.FlagN = false;
+  reg.FlagH = true;
+  reg.FlagC = false;
+  return result;
+};
+
+const xor8 = (x: u8, y: u8, reg: Registers): u8 => {
+  const result = x ^ y;
+  reg.FlagZ = result === 0;
+  reg.FlagN = false;
+  reg.FlagH = false;
+  reg.FlagC = false;
+  return result;
+};
+
+const or8 = (x: u8, y: u8, reg: Registers): u8 => {
+  const result = x | y;
+  reg.FlagZ = result === 0;
+  reg.FlagN = false;
+  reg.FlagH = false;
+  reg.FlagC = false;
+  return result;
+};
+
 const createOpcodeTable = (
   reg: Registers,
   memory: Memory
@@ -359,44 +424,6 @@ const createOpcodeTable = (
 
   // 8-bit arithmetic/logic instructions
 
-  const add8 = (x: u8, y: u8, reg: Registers): u8 => {
-    const result = (x + y) & 0xff;
-    reg.FlagZ = result === 0;
-    reg.FlagN = false;
-    reg.FlagH = (x & 0xf) + (y & 0xf) > 0xf;
-    reg.FlagC = x + y > 0xff;
-    return result;
-  };
-
-  const sub8 = (x: u8, y: u8, reg: Registers): u8 => {
-    const result = (x - y) & 0xff;
-    reg.FlagZ = result === 0;
-    reg.FlagN = true;
-    reg.FlagH = (x & 0xf) < (y & 0xf);
-    reg.FlagC = x < y;
-    return result;
-  };
-
-  const adc8 = (x: u8, y: u8, reg: Registers): u8 => {
-    const c = reg.FlagC ? 1 : 0;
-    const result = (x + y + c) & 0xff;
-    reg.FlagZ = result === 0;
-    reg.FlagN = false;
-    reg.FlagH = (x & 0xf) + (y & 0xf) + c > 0xf;
-    reg.FlagC = x + y + c > 0xff;
-    return result;
-  };
-
-  const sbc8 = (x: u8, y: u8, reg: Registers): u8 => {
-    const c = reg.FlagC ? 0xff : 0;
-    const result = (x - y - c) & 0xff;
-    reg.FlagZ = result === 0;
-    reg.FlagN = true;
-    reg.FlagH = (x & 0xf) < (y & 0xf) + c;
-    reg.FlagC = x < y + c;
-    return result;
-  };
-
   for (let x = 0; x < 8; x++) {
     const opcode = 0x80 + x;
     if (x === 6) {
@@ -505,6 +532,95 @@ const createOpcodeTable = (
     const b = memory.readByte(reg.incPC());
     reg.A = sbc8(a, b, reg);
   });
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0xa0 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `AND A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        reg.A = and8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `AND A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          reg.A = and8(a, b, reg);
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0xa8 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `XOR A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        reg.A = xor8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `XOR A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          reg.A = xor8(a, b, reg);
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0xb0 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `OR A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        reg.A = or8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `OR A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          reg.A = or8(a, b, reg);
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0xb8 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `CP A, (HL)`, 8, 1, () => {
+        const a = reg.A;
+        const b = memory.readByte(reg.HL);
+        sub8(a, b, reg);
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `CP A, ${label8[x]}`,
+        4,
+        1,
+        () => {
+          const a = reg.A;
+          const b = reg[label8[x]];
+          sub8(a, b, reg);
+        }
+      );
+    }
+  }
+
   return opcodeTable;
 };
 
