@@ -700,6 +700,64 @@ const createOpcodeTable = (
     reg.FlagH = true;
   });
 
+  // 16-bit arithmetic/logic instructions
+
+  for (let x = 0; x < 4; x++) {
+    const opcode = 0x09 + (x << 4);
+    opcodeTable[opcode] = new Instruction(
+      opcode,
+      `ADD HL, ${label16[x]}`,
+      8,
+      1,
+      () => {
+        const lower = label16[x][1];
+        const upper = label16[x][0];
+        reg.L = add8(reg.L, reg[lower], reg);
+        reg.H = adc8(reg.H, reg[upper], reg);
+      }
+    );
+  }
+  opcodeTable[0xe8] = new Instruction(0xe8, `ADD SP, n`, 16, 2, () => {
+    let n = memory.readByte(reg.incPC());
+    add8(reg.SP & 0xff, n, reg);
+    reg.FlagZ = false;
+    reg.FlagN = false;
+    n = (n << 8) >> 8; // sign extension
+    reg.SP = (reg.SP + n) & 0xffff;
+  });
+  for (let x = 0; x < 4; x++) {
+    const opcode = 0x03 + (x << 4);
+    opcodeTable[opcode] = new Instruction(
+      opcode,
+      `INC ${label16[x]}`,
+      8,
+      1,
+      () => {
+        reg[label16[x]] = (reg[label16[x]] + 1) & 0xffff;
+      }
+    );
+  }
+  for (let x = 0; x < 4; x++) {
+    const opcode = 0x0b + (x << 4);
+    opcodeTable[opcode] = new Instruction(
+      opcode,
+      `DEC ${label16[x]}`,
+      8,
+      1,
+      () => {
+        reg[label16[x]] = (reg[label16[x]] - 1) & 0xffff;
+      }
+    );
+  }
+  opcodeTable[0xf8] = new Instruction(0xe8, `LD HL, SP+n`, 12, 2, () => {
+    let n = memory.readByte(reg.incPC());
+    add8(reg.SP & 0xff, n, reg);
+    reg.FlagZ = false;
+    reg.FlagN = false;
+    n = (n << 8) >> 8; // sign extension
+    reg.HL = (reg.SP + n) & 0xffff;
+  });
+
   return opcodeTable;
 };
 
