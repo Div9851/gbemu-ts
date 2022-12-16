@@ -758,6 +758,43 @@ const createOpcodeTable = (
     reg.HL = (reg.SP + n) & 0xffff;
   });
 
+  // rotate and shift instructions
+
+  opcodeTable[0x07] = new Instruction(0x07, `RLCA`, 4, 1, () => {
+    const a = reg.A;
+    reg.A = ((a << 1) & 0xff) + (a >> 7);
+    reg.FlagZ = false;
+    reg.FlagN = false;
+    reg.FlagH = false;
+    reg.FlagC = a >> 7 !== 0;
+  });
+  opcodeTable[0x17] = new Instruction(0x17, `RLA`, 4, 1, () => {
+    const c = reg.FlagC ? 1 : 0;
+    const a = reg.A;
+    reg.A = ((a << 1) & 0xff) + c;
+    reg.FlagZ = false;
+    reg.FlagN = false;
+    reg.FlagH = false;
+    reg.FlagC = a >> 7 !== 0;
+  });
+  opcodeTable[0x0f] = new Instruction(0x0f, `RRCA`, 4, 1, () => {
+    const a = reg.A;
+    reg.A = (a >> 1) + ((a & 1) << 7);
+    reg.FlagZ = false;
+    reg.FlagN = false;
+    reg.FlagH = false;
+    reg.FlagC = (a & 1) !== 0;
+  });
+  opcodeTable[0x1f] = new Instruction(0x1f, `RRA`, 4, 1, () => {
+    const c = reg.FlagC ? 1 : 0;
+    const a = reg.A;
+    reg.A = (a >> 1) + (c << 7);
+    reg.FlagZ = false;
+    reg.FlagN = false;
+    reg.FlagH = false;
+    reg.FlagC = (a & 1) !== 0;
+  });
+
   return opcodeTable;
 };
 
