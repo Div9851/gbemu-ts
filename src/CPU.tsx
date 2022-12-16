@@ -676,6 +676,29 @@ const createOpcodeTable = (
       );
     }
   }
+  opcodeTable[0x27] = new Instruction(0x27, `DAA`, 4, 1, () => {
+    if (reg.FlagH || (reg.A & 0xf) >= 0xa) {
+      reg.A += 0x6;
+      if (reg.A > 0xff) {
+        reg.A &= 0xff;
+        reg.FlagC = true;
+      }
+    }
+    if (reg.FlagC || ((reg.A >> 4) & 0xf) >= 0xa) {
+      reg.A += 0x60;
+      if (reg.A > 0xff) {
+        reg.A &= 0xff;
+        reg.FlagC = true;
+      }
+    }
+    reg.FlagZ = reg.A === 0;
+    reg.FlagH = false;
+  });
+  opcodeTable[0x2f] = new Instruction(0x2f, `CPL`, 4, 1, () => {
+    reg.A = reg.A ^ 0xff;
+    reg.FlagN = true;
+    reg.FlagH = true;
+  });
 
   return opcodeTable;
 };
