@@ -254,14 +254,16 @@ const dec8 = (x: u8, reg: Registers): u8 => {
   return result;
 };
 
+const label8 = ["B", "C", "D", "E", "H", "L", "(HL)", "A"];
+const label16 = ["BC", "DE", "HL", "SP"];
+
 const createOpcodeTable = (
   reg: Registers,
   memory: Memory
 ): Array<Instruction> => {
   const opcodeTable: Array<Instruction> = [];
 
-  const label8 = ["B", "C", "D", "E", "H", "L", "(HL)", "A"];
-  const label16 = ["BC", "DE", "HL", "SP"];
+  opcodeTable[0xcb] = new Instruction(0xcb, `PREFIX`, 0, 0, () => {});
 
   // 8-bit load instructions
 
@@ -720,12 +722,12 @@ const createOpcodeTable = (
     );
   }
   opcodeTable[0xe8] = new Instruction(0xe8, `ADD SP, n`, 16, 2, () => {
-    let n = memory.readByte(reg.incPC());
+    const n = memory.readByte(reg.incPC());
     add8(reg.SP & 0xff, n, reg);
     reg.FlagZ = false;
     reg.FlagN = false;
-    n = (n << 8) >> 8; // sign extension
-    reg.SP = (reg.SP + n) & 0xffff;
+    const m = n & (1 << 7) ? n + 0xff00 : n; // sign extension
+    reg.SP = (reg.SP + m) & 0xffff;
   });
   for (let x = 0; x < 4; x++) {
     const opcode = 0x03 + (x << 4);
@@ -756,7 +758,7 @@ const createOpcodeTable = (
     add8(reg.SP & 0xff, n, reg);
     reg.FlagZ = false;
     reg.FlagN = false;
-    const m = (n << 8) >> 8; // sign extension
+    const m = n & (1 << 7) ? n + 0xff00 : n; // sign extension
     reg.HL = (reg.SP + m) & 0xffff;
   });
 
@@ -1061,12 +1063,269 @@ const createOpcodeTable = (
   return opcodeTable;
 };
 
+const createPrefixedOpcodeTable = (
+  reg: Registers,
+  memory: Memory
+): Array<Instruction> => {
+  const opcodeTable: Array<Instruction> = [];
+
+  // rotate and shift instructions
+
+  for (let x = 0; x < 8; x++) {
+    const opcode = x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `RLC (HL)`, 16, 1, () => {
+        const a = memory.readByte(reg.HL);
+        const result = ((a << 1) & 0xff) + (a >> 7);
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = a >> 7 !== 0;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `RLC ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const a = reg[label8[x]];
+          const result = ((a << 1) & 0xff) + (a >> 7);
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = a >> 7 !== 0;
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x10 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `RL (HL)`, 16, 1, () => {
+        const c = reg.FlagC ? 1 : 0;
+        const a = memory.readByte(reg.HL);
+        const result = ((a << 1) & 0xff) + c;
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = a >> 7 !== 0;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `RL ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const c = reg.FlagC ? 1 : 0;
+          const a = reg[label8[x]];
+          const result = ((a << 1) & 0xff) + c;
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = a >> 7 !== 0;
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x08 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `RRC (HL)`, 16, 1, () => {
+        const a = memory.readByte(reg.HL);
+        const result = (a >> 1) + ((a & 1) << 7);
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = (a & 1) !== 0;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `RRC ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const a = reg[label8[x]];
+          const result = (a >> 1) + ((a & 1) << 7);
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = (a & 1) !== 0;
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x18 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `RR (HL)`, 16, 1, () => {
+        const c = reg.FlagC ? 1 : 0;
+        const a = memory.readByte(reg.HL);
+        const result = (a >> 1) + (c << 7);
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = (a & 1) !== 0;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `RR ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const c = reg.FlagC ? 1 : 0;
+          const a = reg[label8[x]];
+          const result = (a >> 1) + (c << 7);
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = (a & 1) !== 0;
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x20 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `SLA (HL)`, 16, 1, () => {
+        const a = memory.readByte(reg.HL);
+        const result = (a << 1) & 0xff;
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = a >> 7 !== 0;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `SLA ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const a = reg[label8[x]];
+          const result = (a << 1) & 0xff;
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = a >> 7 !== 0;
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x28 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `SRA (HL)`, 16, 1, () => {
+        const a = memory.readByte(reg.HL);
+        const result = ((a >> 7) << 7) + (a >> 1);
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = (a & 1) !== 0;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `SRA ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const a = reg[label8[x]];
+          const result = ((a >> 7) << 7) + (a >> 1);
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = (a & 1) !== 0;
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x30 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `SWAP (HL)`, 16, 1, () => {
+        const a = memory.readByte(reg.HL);
+        const result = ((a & 0xf) << 4) + (a >> 4);
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = false;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `SWAP ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const a = reg[label8[x]];
+          const result = ((a & 0xf) << 4) + (a >> 4);
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = false;
+        }
+      );
+    }
+  }
+  for (let x = 0; x < 8; x++) {
+    const opcode = 0x38 + x;
+    if (x === 6) {
+      opcodeTable[opcode] = new Instruction(opcode, `SRL (HL)`, 16, 1, () => {
+        const a = memory.readByte(reg.HL);
+        const result = a >> 1;
+        memory.writeByte(reg.HL, result);
+        reg.FlagZ = result === 0;
+        reg.FlagN = false;
+        reg.FlagH = false;
+        reg.FlagC = (a & 1) !== 0;
+      });
+    } else {
+      opcodeTable[opcode] = new Instruction(
+        opcode,
+        `SRL ${label8[x]}`,
+        8,
+        1,
+        () => {
+          const a = reg[label8[x]];
+          const result = a >> 1;
+          reg[label8[x]] = result;
+          reg.FlagZ = result === 0;
+          reg.FlagN = false;
+          reg.FlagH = false;
+          reg.FlagC = (a & 1) !== 0;
+        }
+      );
+    }
+  }
+
+  return opcodeTable;
+};
+
 class CPU {
   reg: Registers;
   memory: Memory;
   clocksToComplete: number;
   funcToExecute: () => void;
   opcodeTable: Array<Instruction>;
+  prefixedOpcodeTable: Array<Instruction>;
 
   constructor(memory: Memory) {
     this.reg = new Registers();
@@ -1074,11 +1333,16 @@ class CPU {
     this.clocksToComplete = 0;
     this.funcToExecute = () => {};
     this.opcodeTable = createOpcodeTable(this.reg, this.memory);
+    this.prefixedOpcodeTable = createPrefixedOpcodeTable(this.reg, this.memory);
   }
 
   fetch() {
-    const opcode = this.memory.readByte(this.reg.incPC());
-    const inst = this.opcodeTable[opcode];
+    let opcode = this.memory.readByte(this.reg.incPC());
+    let inst = this.opcodeTable[opcode];
+    if (opcode === 0xcb) {
+      opcode = this.memory.readByte(this.reg.incPC());
+      inst = this.prefixedOpcodeTable[opcode];
+    }
     this.clocksToComplete = inst.clocks;
     this.funcToExecute = inst.handler;
     this.reg.jump = false;
