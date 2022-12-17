@@ -17,6 +17,10 @@ class Registers {
   PC: u16 = 0;
   SP: u16 = 0;
 
+  jump: boolean = false;
+  clocksToCompleteJump: number = 0;
+  jumpHandler: () => void = () => {};
+
   incPC(): u16 {
     const curPC = this.PC;
     this.PC = (curPC + 1) & 0xffff;
@@ -339,13 +343,13 @@ const createOpcodeTable = (
   opcodeTable[0xfa] = new Instruction(0xfa, `LD A, (nn)`, 16, 3, () => {
     const lower = memory.readByte(reg.incPC());
     const upper = memory.readByte(reg.incPC());
-    const addr = (upper << 3) + lower;
+    const addr = (upper << 8) + lower;
     reg.A = memory.readByte(addr);
   });
   opcodeTable[0xea] = new Instruction(0xea, `LD (nn), A`, 16, 3, () => {
     const lower = memory.readByte(reg.incPC());
     const upper = memory.readByte(reg.incPC());
-    const addr = (upper << 3) + lower;
+    const addr = (upper << 8) + lower;
     memory.writeByte(addr, reg.A);
   });
   opcodeTable[0xf2] = new Instruction(0xf2, `LDH A, (C)`, 8, 1, () => {
@@ -391,15 +395,15 @@ const createOpcodeTable = (
       () => {
         const lower = memory.readByte(reg.incPC());
         const upper = memory.readByte(reg.incPC());
-        const n = (upper << 3) + lower;
+        const n = (upper << 8) + lower;
         reg[label16[x]] = n;
       }
     );
   }
   opcodeTable[0x08] = new Instruction(0x08, `LD (nn), SP`, 20, 3, () => {
-    const lower = memory.readByte(reg.incPC());
-    const upper = memory.readByte(reg.incPC());
-    const addr = (upper << 3) + lower;
+    const lowerAddr = memory.readByte(reg.incPC());
+    const upperAddr = memory.readByte(reg.incPC());
+    const addr = (upperAddr << 8) + lowerAddr;
     const lowerSP = reg.SP & 0xff;
     const upperSP = (reg.SP >> 8) & 0xff;
     memory.writeByte(addr, lowerSP);
@@ -435,8 +439,6 @@ const createOpcodeTable = (
       }
     );
   }
-
-  // TODO: LD HL, SP+i8 is missing!
 
   // 8-bit arithmetic/logic instructions
 
@@ -750,12 +752,12 @@ const createOpcodeTable = (
     );
   }
   opcodeTable[0xf8] = new Instruction(0xe8, `LD HL, SP+n`, 12, 2, () => {
-    let n = memory.readByte(reg.incPC());
+    const n = memory.readByte(reg.incPC());
     add8(reg.SP & 0xff, n, reg);
     reg.FlagZ = false;
     reg.FlagN = false;
-    n = (n << 8) >> 8; // sign extension
-    reg.HL = (reg.SP + n) & 0xffff;
+    const m = (n << 8) >> 8; // sign extension
+    reg.HL = (reg.SP + m) & 0xffff;
   });
 
   // rotate and shift instructions
@@ -795,6 +797,267 @@ const createOpcodeTable = (
     reg.FlagC = (a & 1) !== 0;
   });
 
+  // jump instructions
+
+  opcodeTable[0xc3] = new Instruction(0xc3, `JP nn`, 16, 3, () => {
+    const lower = memory.readByte(reg.incPC());
+    const upper = memory.readByte(reg.incPC());
+    const n = (upper << 8) + lower;
+    reg.PC = n;
+  });
+  opcodeTable[0xe9] = new Instruction(0xe9, `JP HL`, 4, 1, () => {
+    reg.PC = reg.HL;
+  });
+  opcodeTable[0xc2] = new Instruction(0xc2, `JP NZ, nn`, 12, 3, () => {
+    const lower = memory.readByte(reg.incPC());
+    const upper = memory.readByte(reg.incPC());
+    const n = (upper << 8) + lower;
+    if (!reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0xca] = new Instruction(0xca, `JP Z, nn`, 12, 3, () => {
+    const lower = memory.readByte(reg.incPC());
+    const upper = memory.readByte(reg.incPC());
+    const n = (upper << 8) + lower;
+    if (reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0xd2] = new Instruction(0xd2, `JP NC, nn`, 12, 3, () => {
+    const lower = memory.readByte(reg.incPC());
+    const upper = memory.readByte(reg.incPC());
+    const n = (upper << 8) + lower;
+    if (!reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0xda] = new Instruction(0xda, `JP C, nn`, 12, 3, () => {
+    const lower = memory.readByte(reg.incPC());
+    const upper = memory.readByte(reg.incPC());
+    const n = (upper << 8) + lower;
+    if (reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0x18] = new Instruction(0x18, `JR PC+n`, 12, 2, () => {
+    const n = memory.readByte(reg.incPC());
+    const m = (n << 8) >> 8;
+    reg.PC += m;
+  });
+  opcodeTable[0x20] = new Instruction(0x20, `JR NZ, PC+n`, 8, 2, () => {
+    const n = memory.readByte(reg.incPC());
+    const m = (n << 8) >> 8;
+    if (!reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC += m;
+      };
+    }
+  });
+  opcodeTable[0x28] = new Instruction(0x28, `JR Z, PC+n`, 8, 2, () => {
+    const n = memory.readByte(reg.incPC());
+    const m = (n << 8) >> 8;
+    if (reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC += m;
+      };
+    }
+  });
+  opcodeTable[0x30] = new Instruction(0x30, `JR NC, PC+n`, 8, 2, () => {
+    const n = memory.readByte(reg.incPC());
+    const m = (n << 8) >> 8;
+    if (!reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC += m;
+      };
+    }
+  });
+  opcodeTable[0x38] = new Instruction(0x38, `JR C, PC+n`, 8, 2, () => {
+    const n = memory.readByte(reg.incPC());
+    const m = (n << 8) >> 8;
+    if (reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 4;
+      reg.jumpHandler = () => {
+        reg.PC += m;
+      };
+    }
+  });
+  opcodeTable[0xcd] = new Instruction(0xcd, `CALL nn`, 24, 3, () => {
+    const lowerN = memory.readByte(reg.incPC());
+    const upperN = memory.readByte(reg.incPC());
+    const n = (upperN << 8) + lowerN;
+    const lowerPC = reg.PC & 0xff;
+    const upperPC = (reg.PC >> 8) & 0xff;
+    reg.decSP();
+    memory.writeByte(reg.decSP(), upperPC);
+    memory.writeByte(reg.SP, lowerPC);
+    reg.PC = n;
+  });
+  opcodeTable[0xc4] = new Instruction(0xc4, `CALL NZ, nn`, 12, 3, () => {
+    const lowerN = memory.readByte(reg.incPC());
+    const upperN = memory.readByte(reg.incPC());
+    const n = (upperN << 8) + lowerN;
+    const lowerPC = reg.PC & 0xff;
+    const upperPC = (reg.PC >> 8) & 0xff;
+    if (!reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        reg.decSP();
+        memory.writeByte(reg.decSP(), upperPC);
+        memory.writeByte(reg.SP, lowerPC);
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0xcc] = new Instruction(0xcc, `CALL Z, nn`, 12, 3, () => {
+    const lowerN = memory.readByte(reg.incPC());
+    const upperN = memory.readByte(reg.incPC());
+    const n = (upperN << 8) + lowerN;
+    const lowerPC = reg.PC & 0xff;
+    const upperPC = (reg.PC >> 8) & 0xff;
+    if (reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        reg.decSP();
+        memory.writeByte(reg.decSP(), upperPC);
+        memory.writeByte(reg.SP, lowerPC);
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0xd4] = new Instruction(0xd4, `CALL NC, nn`, 12, 3, () => {
+    const lowerN = memory.readByte(reg.incPC());
+    const upperN = memory.readByte(reg.incPC());
+    const n = (upperN << 8) + lowerN;
+    const lowerPC = reg.PC & 0xff;
+    const upperPC = (reg.PC >> 8) & 0xff;
+    if (!reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        reg.decSP();
+        memory.writeByte(reg.decSP(), upperPC);
+        memory.writeByte(reg.SP, lowerPC);
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0xdc] = new Instruction(0xc4, `CALL C, nn`, 12, 3, () => {
+    const lowerN = memory.readByte(reg.incPC());
+    const upperN = memory.readByte(reg.incPC());
+    const n = (upperN << 8) + lowerN;
+    const lowerPC = reg.PC & 0xff;
+    const upperPC = (reg.PC >> 8) & 0xff;
+    if (reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        reg.decSP();
+        memory.writeByte(reg.decSP(), upperPC);
+        memory.writeByte(reg.SP, lowerPC);
+        reg.PC = n;
+      };
+    }
+  });
+  opcodeTable[0xc9] = new Instruction(0xc9, `RET`, 16, 1, () => {
+    const lower = memory.readByte(reg.incSP());
+    const upper = memory.readByte(reg.incSP());
+    const addr = (upper << 8) + lower;
+    reg.PC = addr;
+  });
+  opcodeTable[0xc0] = new Instruction(0xc0, `RET NZ`, 8, 1, () => {
+    if (!reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        const lower = memory.readByte(reg.incSP());
+        const upper = memory.readByte(reg.incSP());
+        const addr = (upper << 8) + lower;
+        reg.PC = addr;
+      };
+    }
+  });
+  opcodeTable[0xc8] = new Instruction(0xc8, `RET Z`, 8, 1, () => {
+    if (reg.FlagZ) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        const lower = memory.readByte(reg.incSP());
+        const upper = memory.readByte(reg.incSP());
+        const addr = (upper << 8) + lower;
+        reg.PC = addr;
+      };
+    }
+  });
+  opcodeTable[0xd0] = new Instruction(0xd0, `RET NC`, 8, 1, () => {
+    if (!reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        const lower = memory.readByte(reg.incSP());
+        const upper = memory.readByte(reg.incSP());
+        const addr = (upper << 8) + lower;
+        reg.PC = addr;
+      };
+    }
+  });
+  opcodeTable[0xd8] = new Instruction(0xd8, `RET C`, 8, 1, () => {
+    if (reg.FlagC) {
+      reg.jump = true;
+      reg.clocksToCompleteJump = 12;
+      reg.jumpHandler = () => {
+        const lower = memory.readByte(reg.incSP());
+        const upper = memory.readByte(reg.incSP());
+        const addr = (upper << 8) + lower;
+        reg.PC = addr;
+      };
+    }
+  });
+  // TODO: reti
+  for (let x = 0; x < 8; x++) {
+    const y = x << 3;
+    const opcode = 0xc7 + y;
+    opcodeTable[opcode] = new Instruction(
+      opcode,
+      `RST 0x${y.toString(16)}`,
+      16,
+      1,
+      () => {
+        const lower = reg.PC & 0xff;
+        const upper = (reg.PC >> 8) & 0xff;
+        reg.decSP();
+        memory.writeByte(reg.decSP(), upper);
+        memory.writeByte(reg.SP, lower);
+        reg.PC = y;
+      }
+    );
+  }
+
   return opcodeTable;
 };
 
@@ -818,12 +1081,19 @@ class CPU {
     const inst = this.opcodeTable[opcode];
     this.clocksToComplete = inst.clocks;
     this.funcToExecute = inst.handler;
+    this.reg.jump = false;
   }
 
   tick() {
     this.clocksToComplete--;
     if (this.clocksToComplete <= 0) {
       this.funcToExecute();
+      if (this.reg.jump) {
+        this.clocksToComplete = this.reg.clocksToCompleteJump;
+        this.funcToExecute = this.reg.jumpHandler;
+        this.reg.jump = false;
+        return;
+      }
       this.fetch();
     }
   }
