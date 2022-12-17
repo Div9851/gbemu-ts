@@ -1315,6 +1315,98 @@ const createPrefixedOpcodeTable = (
       );
     }
   }
+  for (let i = 0; i < 8; i++) {
+    for (let x = 0; x < 8; x++) {
+      const opcode = 0x40 + (i << 3) + x;
+      if (x === 6) {
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `BIT ${i}, (HL)`,
+          12,
+          1,
+          () => {
+            const a = memory.readByte(reg.HL);
+            reg.FlagZ = ((a >> i) & 1) !== 0;
+            reg.FlagN = false;
+            reg.FlagH = true;
+          }
+        );
+      } else {
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `BIT ${i}, ${label8[x]}`,
+          8,
+          1,
+          () => {
+            const a = reg[label8[x]];
+            reg.FlagZ = ((a >> i) & 1) !== 0;
+            reg.FlagN = false;
+            reg.FlagH = true;
+          }
+        );
+      }
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    for (let x = 0; x < 8; x++) {
+      const opcode = 0xc0 + (i << 3) + x;
+      if (x === 6) {
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `SET ${i}, (HL)`,
+          16,
+          1,
+          () => {
+            const a = memory.readByte(reg.HL);
+            const result = a | (1 << i);
+            memory.writeByte(reg.HL, result);
+          }
+        );
+      } else {
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `SET ${i}, ${label8[x]}`,
+          8,
+          1,
+          () => {
+            const a = reg[label8[x]];
+            const result = a | (1 << i);
+            reg[label8[x]] = result;
+          }
+        );
+      }
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    for (let x = 0; x < 8; x++) {
+      const opcode = 0x80 + (i << 3) + x;
+      if (x === 6) {
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `RES ${i}, (HL)`,
+          16,
+          1,
+          () => {
+            const a = memory.readByte(reg.HL);
+            const result = a & (0xff - (1 << i));
+            memory.writeByte(reg.HL, result);
+          }
+        );
+      } else {
+        opcodeTable[opcode] = new Instruction(
+          opcode,
+          `RES ${i}, ${label8[x]}`,
+          8,
+          1,
+          () => {
+            const a = reg[label8[x]];
+            const result = a & (0xff - (1 << i));
+            reg[label8[x]] = result;
+          }
+        );
+      }
+    }
+  }
 
   return opcodeTable;
 };
