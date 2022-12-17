@@ -21,6 +21,8 @@ class Registers {
   clocksToCompleteJump: number = 0;
   jumpHandler: () => void = () => {};
 
+  halt: boolean = false;
+
   incPC(): u16 {
     const curPC = this.PC;
     this.PC = (curPC + 1) & 0xffff;
@@ -1060,6 +1062,23 @@ const createOpcodeTable = (
     );
   }
 
+  // CPU control instructions
+
+  opcodeTable[0x3f] = new Instruction(0x3f, `CCF`, 4, 1, () => {
+    reg.FlagN = false;
+    reg.FlagH = false;
+    reg.FlagC = !reg.FlagC;
+  });
+  opcodeTable[0x37] = new Instruction(0x37, `SCF`, 4, 1, () => {
+    reg.FlagN = false;
+    reg.FlagH = false;
+    reg.FlagC = true;
+  });
+  opcodeTable[0x00] = new Instruction(0x00, `NOP`, 4, 1, () => {});
+  opcodeTable[0x76] = new Instruction(0x76, `HALT`, 4, 1, () => {
+    reg.halt = true;
+  });
+
   return opcodeTable;
 };
 
@@ -1441,8 +1460,9 @@ class CPU {
   }
 
   tick() {
-    this.clocksToComplete--;
-    if (this.clocksToComplete <= 0) {
+    if (!this.reg.halt) {
+      this.clocksToComplete--;
+      if (this.clocksToComplete > 0) return;
       this.funcToExecute();
       if (this.reg.jump) {
         this.clocksToComplete = this.reg.clocksToCompleteJump;
@@ -1450,8 +1470,9 @@ class CPU {
         this.reg.jump = false;
         return;
       }
-      this.fetch();
     }
+    // check interrupt
+    if (!this.reg.halt) this.fetch();
   }
 }
 
