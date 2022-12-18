@@ -16,16 +16,22 @@ class Registers {
   L: u8 = 0;
   PC: u16 = 0;
   SP: u16 = 0;
+  IME: boolean = false;
 
   jump: boolean = false;
   clocksToCompleteJump: number = 0;
   jumpHandler: () => void = () => {};
 
   halt: boolean = false;
+  notIncPC: boolean = false;
 
   incPC(): u16 {
     const curPC = this.PC;
-    this.PC = (curPC + 1) & 0xffff;
+    if (this.notIncPC) {
+      this.notIncPC = false;
+    } else {
+      this.PC = (curPC + 1) & 0xffff;
+    }
     return curPC;
   }
 
@@ -1042,7 +1048,13 @@ const createOpcodeTable = (
       };
     }
   });
-  // TODO: reti
+  opcodeTable[0xd9] = new Instruction(0xd9, `RETI`, 16, 1, () => {
+    const lower = memory.readByte(reg.incSP());
+    const upper = memory.readByte(reg.incSP());
+    const addr = (upper << 8) + lower;
+    reg.PC = addr;
+    reg.IME = true;
+  });
   for (let x = 0; x < 8; x++) {
     const y = x << 3;
     const opcode = 0xc7 + y;
@@ -1076,7 +1088,18 @@ const createOpcodeTable = (
   });
   opcodeTable[0x00] = new Instruction(0x00, `NOP`, 4, 1, () => {});
   opcodeTable[0x76] = new Instruction(0x76, `HALT`, 4, 1, () => {
-    reg.halt = true;
+    if (!reg.IME && (memory.IE & memory.IF) !== 0) {
+      // HALT mode is not entered. HALT bug occurs.
+      reg.notIncPC = true;
+    } else {
+      reg.halt = true;
+    }
+  });
+  opcodeTable[0xf3] = new Instruction(0xf3, `DI`, 4, 1, () => {
+    reg.IME = false;
+  });
+  opcodeTable[0xfb] = new Instruction(0xf3, `EI`, 4, 1, () => {
+    reg.IME = true;
   });
 
   return opcodeTable;
@@ -1460,19 +1483,53 @@ class CPU {
   }
 
   tick() {
-    if (!this.reg.halt) {
-      this.clocksToComplete--;
-      if (this.clocksToComplete > 0) return;
+    this.clocksToComplete--;
+    if (this.clocksToComplete === 0) {
       this.funcToExecute();
       if (this.reg.jump) {
+        this.reg.jump = false;
         this.clocksToComplete = this.reg.clocksToCompleteJump;
         this.funcToExecute = this.reg.jumpHandler;
-        this.reg.jump = false;
         return;
       }
+      // check interrupt
+      const interrupt = this.memory.IE & this.memory.IF;
+      const intVector = [0x40, 0x48, 0x50, 0x58, 0x60];
+      if (interrupt && this.reg.IME) {
+        for (let i = 0; i < 5; i++) {
+          if (interrupt & (1 << i)) {
+            this.clocksToComplete = 20;
+            this.funcToExecute = () => {
+              this.reg.halt = false;
+              this.reg.IME = false;
+              const lower = this.reg.PC & 0xff;
+              const upper = (this.reg.PC >> 8) & 0xff;
+              this.reg.decSP();
+              this.memory.writeByte(this.reg.decSP(), upper);
+              this.memory.writeByte(this.reg.SP, lower);
+              this.reg.PC = intVector[i];
+              this.memory.IF ^= 1 << i;
+            };
+            return;
+          }
+        }
+      }
+      if (this.reg.halt) {
+        this.clocksToComplete = 4;
+        if (interrupt) {
+          // if IME=0 and CPU is halted, when any interrupt is triggered,
+          // it takes 4 clocks to exit halt, even if CPU doesn't jump to the interrupt vector.
+          this.funcToExecute = () => {
+            this.reg.halt = false;
+            this.reg.notIncPC = true;
+          };
+        } else {
+          this.funcToExecute = () => {};
+        }
+        return;
+      }
+      this.fetch();
     }
-    // check interrupt
-    if (!this.reg.halt) this.fetch();
   }
 }
 
