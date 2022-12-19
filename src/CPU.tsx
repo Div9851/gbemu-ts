@@ -6,16 +6,16 @@ type u16 = number;
 class Registers {
   [key: string]: any;
 
-  A: u8 = 0;
-  B: u8 = 0;
-  C: u8 = 0;
-  D: u8 = 0;
-  E: u8 = 0;
-  F: u8 = 0;
-  H: u8 = 0;
-  L: u8 = 0;
-  PC: u16 = 0;
-  SP: u16 = 0;
+  A: u8 = 0x01;
+  B: u8 = 0xff;
+  C: u8 = 0x13;
+  D: u8 = 0x00;
+  E: u8 = 0xc1;
+  F: u8 = 0x00;
+  H: u8 = 0x84;
+  L: u8 = 0x03;
+  PC: u16 = 0x0000;
+  SP: u16 = 0xfffe;
   IME: boolean = false;
 
   jump: boolean = false;
@@ -24,6 +24,8 @@ class Registers {
 
   halt: boolean = false;
   notIncPC: boolean = false;
+
+  outputLog: boolean = false;
 
   incPC(): u16 {
     const curPC = this.PC;
@@ -582,6 +584,11 @@ const createOpcodeTable = (
       );
     }
   }
+  opcodeTable[0xe6] = new Instruction(0xe6, `AND A, n`, 8, 1, () => {
+    const a = reg.A;
+    const n = memory.readByte(reg.incPC());
+    reg.A = and8(a, n, reg);
+  });
   for (let x = 0; x < 8; x++) {
     const opcode = 0xa8 + x;
     if (x === 6) {
@@ -604,6 +611,11 @@ const createOpcodeTable = (
       );
     }
   }
+  opcodeTable[0xee] = new Instruction(0xee, `XOR A, n`, 8, 1, () => {
+    const a = reg.A;
+    const n = memory.readByte(reg.incPC());
+    reg.A = xor8(a, n, reg);
+  });
   for (let x = 0; x < 8; x++) {
     const opcode = 0xb0 + x;
     if (x === 6) {
@@ -626,6 +638,11 @@ const createOpcodeTable = (
       );
     }
   }
+  opcodeTable[0xf6] = new Instruction(0xf6, `OR A, n`, 8, 1, () => {
+    const a = reg.A;
+    const n = memory.readByte(reg.incPC());
+    reg.A = or8(a, n, reg);
+  });
   for (let x = 0; x < 8; x++) {
     const opcode = 0xb8 + x;
     if (x === 6) {
@@ -648,6 +665,11 @@ const createOpcodeTable = (
       );
     }
   }
+  opcodeTable[0xfe] = new Instruction(0xfe, `CP A, n`, 8, 1, () => {
+    const a = reg.A;
+    const n = memory.readByte(reg.incPC());
+    sub8(a, n, reg);
+  });
   for (let x = 0; x < 8; x++) {
     const opcode = 0x04 + (x << 3);
     if (x === 6) {
@@ -658,12 +680,12 @@ const createOpcodeTable = (
     } else {
       opcodeTable[opcode] = new Instruction(
         opcode,
-        `INC A, ${label8[x]}`,
+        `INC ${label8[x]}`,
         4,
         1,
         () => {
-          const a = reg.A;
-          reg.A = inc8(a, reg);
+          const a = reg[label8[x]];
+          reg[label8[x]] = inc8(a, reg);
         }
       );
     }
@@ -678,12 +700,12 @@ const createOpcodeTable = (
     } else {
       opcodeTable[opcode] = new Instruction(
         opcode,
-        `DEC A, ${label8[x]}`,
+        `DEC ${label8[x]}`,
         4,
         1,
         () => {
-          const a = reg.A;
-          reg.A = dec8(a, reg);
+          const a = reg[label8[x]];
+          reg[label8[x]] = dec8(a, reg);
         }
       );
     }
@@ -868,50 +890,50 @@ const createOpcodeTable = (
   });
   opcodeTable[0x18] = new Instruction(0x18, `JR PC+n`, 12, 2, () => {
     const n = memory.readByte(reg.incPC());
-    const m = (n << 8) >> 8;
-    reg.PC += m;
+    const m = n & (1 << 7) ? n + 0xff00 : n; // sign extension
+    reg.PC = (reg.PC + m) & 0xffff;
   });
   opcodeTable[0x20] = new Instruction(0x20, `JR NZ, PC+n`, 8, 2, () => {
     const n = memory.readByte(reg.incPC());
-    const m = (n << 8) >> 8;
+    const m = n & (1 << 7) ? n + 0xff00 : n; // sign extension
     if (!reg.FlagZ) {
       reg.jump = true;
       reg.clocksToCompleteJump = 4;
       reg.jumpHandler = () => {
-        reg.PC += m;
+        reg.PC = (reg.PC + m) & 0xffff;
       };
     }
   });
   opcodeTable[0x28] = new Instruction(0x28, `JR Z, PC+n`, 8, 2, () => {
     const n = memory.readByte(reg.incPC());
-    const m = (n << 8) >> 8;
+    const m = n & (1 << 7) ? n + 0xff00 : n; // sign extension
     if (reg.FlagZ) {
       reg.jump = true;
       reg.clocksToCompleteJump = 4;
       reg.jumpHandler = () => {
-        reg.PC += m;
+        reg.PC = (reg.PC + m) & 0xffff;
       };
     }
   });
   opcodeTable[0x30] = new Instruction(0x30, `JR NC, PC+n`, 8, 2, () => {
     const n = memory.readByte(reg.incPC());
-    const m = (n << 8) >> 8;
+    const m = n & (1 << 7) ? n + 0xff00 : n; // sign extension
     if (!reg.FlagC) {
       reg.jump = true;
       reg.clocksToCompleteJump = 4;
       reg.jumpHandler = () => {
-        reg.PC += m;
+        reg.PC = (reg.PC + m) & 0xffff;
       };
     }
   });
   opcodeTable[0x38] = new Instruction(0x38, `JR C, PC+n`, 8, 2, () => {
     const n = memory.readByte(reg.incPC());
-    const m = (n << 8) >> 8;
+    const m = n & (1 << 7) ? n + 0xff00 : n; // sign extension
     if (reg.FlagC) {
       reg.jump = true;
       reg.clocksToCompleteJump = 4;
       reg.jumpHandler = () => {
-        reg.PC += m;
+        reg.PC = (reg.PC + m) & 0xffff;
       };
     }
   });
@@ -1368,7 +1390,7 @@ const createPrefixedOpcodeTable = (
           1,
           () => {
             const a = memory.readByte(reg.HL);
-            reg.FlagZ = ((a >> i) & 1) !== 0;
+            reg.FlagZ = ((a >> i) & 1) === 0;
             reg.FlagN = false;
             reg.FlagH = true;
           }
@@ -1381,7 +1403,7 @@ const createPrefixedOpcodeTable = (
           1,
           () => {
             const a = reg[label8[x]];
-            reg.FlagZ = ((a >> i) & 1) !== 0;
+            reg.FlagZ = ((a >> i) & 1) === 0;
             reg.FlagN = false;
             reg.FlagH = true;
           }
@@ -1460,6 +1482,7 @@ class CPU {
   funcToExecute: () => void;
   opcodeTable: Array<Instruction>;
   prefixedOpcodeTable: Array<Instruction>;
+  counter: number = 0;
 
   constructor(memory: Memory) {
     this.reg = new Registers();
@@ -1471,11 +1494,21 @@ class CPU {
   }
 
   fetch() {
+    if (this.reg.HL === 0x9ff0) {
+      console.log("Wow!");
+    }
+    if (this.reg.PC === 0x000c) {
+      this.reg.outputLog = true;
+    }
     let opcode = this.memory.readByte(this.reg.incPC());
     let inst = this.opcodeTable[opcode];
     if (opcode === 0xcb) {
       opcode = this.memory.readByte(this.reg.incPC());
       inst = this.prefixedOpcodeTable[opcode];
+    }
+    if (this.reg.outputLog) {
+      console.log(opcode);
+      console.log(inst.label);
     }
     this.clocksToComplete = inst.clocks;
     this.funcToExecute = inst.handler;
@@ -1483,6 +1516,11 @@ class CPU {
   }
 
   tick() {
+    this.counter++;
+    if (this.counter === 100) {
+      this.counter = 0;
+      console.log("one");
+    }
     this.clocksToComplete--;
     if (this.clocksToComplete === 0) {
       this.funcToExecute();
